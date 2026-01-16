@@ -23,10 +23,24 @@ export interface Project {
   createdAt: number;
 }
 
+export interface Theme {
+  id: string;
+  name: string;
+  bgColor: string;
+  panelBg: string;
+  accentColor: string;
+  accentGlow: string;
+  textColor: string;
+  borderStyle: string;
+  bgImage: string;
+  fontFamily: string;
+}
+
 export type ViewState = 
   | { type: 'PROJECT_LIST' }
   | { type: 'PROJECT_DETAIL'; projectId: string; tab: 'LIST' | 'CHART' }
-  | { type: 'TRANSACTION_HISTORY'; subCategoryId: string; projectId: string };
+  | { type: 'TRANSACTION_HISTORY'; subCategoryId: string; projectId: string }
+  | { type: 'THEME_SETTINGS' };
 
 export const EMOJIS = [
   '💰', '🏠', '🚗', '🍔', '✈️', '🎮', '💡', '📱', 

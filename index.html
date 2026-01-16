@@ -20,33 +20,35 @@
         
         :root {
             --bg-color: #020617;
-            --panel-bg: rgba(15, 23, 42, 0.6);
+            --bg-gradient: linear-gradient(135deg, #020617 0%, #0f172a 100%);
+            --bg-pattern: none;
+            --pattern-size: 32px 32px;
+            --panel-bg: rgba(15, 23, 42, 0.7);
             --accent-color: #00f2ff;
-            --accent-glow: rgba(0, 242, 255, 0.5);
+            --accent-glow: rgba(0, 242, 255, 0.4);
             --text-color: #f8fafc;
             --border-style: 1px solid rgba(255, 255, 255, 0.1);
-            --bg-image: none;
         }
 
-        /* 將底色設在 html 層，作為圖片加載前的墊底 */
-        html {
+        html, body {
+            height: 100dvh;
+            margin: 0;
+            padding: 0;
             background-color: var(--bg-color);
-            height: 100%;
+            overflow: hidden; /* 防止整頁滾動 */
+            overscroll-behavior: none;
         }
 
         body {
             font-family: 'Noto Sans TC', sans-serif;
             color: var(--text-color);
-            background-color: transparent !important; /* 必須透明，圖片才看得到 */
+            background: var(--bg-gradient) !important;
+            background-attachment: fixed !important;
             -webkit-tap-highlight-color: transparent;
-            overflow-x: hidden;
-            transition: color 0.5s ease;
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
+            transition: all 0.5s ease;
         }
 
-        /* 偽元素背景技術：解決手機端固定背景的相容性問題 */
+        /* 幾何圖騰底紋 */
         body::before {
             content: "";
             position: fixed;
@@ -54,13 +56,18 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: -1; /* 位於所有內容之下，html 之上 */
-            background-image: var(--bg-image);
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            transition: background-image 0.8s ease-in-out;
+            z-index: 0;
+            background-image: var(--bg-pattern);
+            background-size: var(--pattern-size);
             pointer-events: none;
+            opacity: 0.6;
+            transition: background-image 0.5s ease;
+        }
+
+        #root {
+            position: relative;
+            z-index: 10;
+            height: 100%;
         }
 
         .tech-font {
@@ -70,14 +77,14 @@
 
         .glass-panel {
             background: var(--panel-bg);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            backdrop-filter: blur(12px) saturate(160%);
+            -webkit-backdrop-filter: blur(12px) saturate(160%);
             border: var(--border-style);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         }
 
         .neo-shadow {
-            box-shadow: 0 0 25px var(--accent-glow);
+            box-shadow: 0 0 20px var(--accent-glow);
         }
 
         input::-webkit-outer-spin-button,
@@ -97,25 +104,13 @@
             outline: none;
         }
 
-        .safe-area-bottom {
-            padding-bottom: env(safe-area-inset-bottom);
-        }
-        
         .accent-glow {
-            text-shadow: 0 0 12px var(--accent-glow);
+            text-shadow: 0 0 10px var(--accent-glow);
         }
 
         .accent-text { color: var(--accent-color); }
         .accent-bg { background-color: var(--accent-color); }
         .accent-border { border-color: var(--accent-color); }
-        
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
         
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -123,6 +118,15 @@
         }
         .animate-in {
             animation: fadeIn 0.4s ease-out forwards;
+        }
+        
+        /* 捲軸隱藏 */
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
         }
     </style>
 <script type="importmap">

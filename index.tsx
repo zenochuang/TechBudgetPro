@@ -24,34 +24,58 @@ const App = () => {
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   
-  // Modals for SubCategories & Transactions
   const [activeSubCategoryModal, setActiveSubCategoryModal] = useState<{ type: 'ADD' | 'EDIT', sub?: SubCategory } | null>(null);
   const [activeTransactionModal, setActiveTransactionModal] = useState<{ type: 'ADD' | 'EDIT', subId: string, tx?: Transaction } | null>(null);
   
-  // Current Theme State
   const [currentTheme, setCurrentTheme] = useState<Theme>(
     THEMES.find(t => t.id === (data as any).themeId) || THEMES[0]
   );
 
-  // Persistence
   useEffect(() => {
     saveData({ ...data, themeId: currentTheme.id } as any);
   }, [data, currentTheme]);
 
-  // Apply Theme
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--bg-color', currentTheme.bgColor);
+    root.style.setProperty('--bg-gradient', currentTheme.bgImage);
     root.style.setProperty('--panel-bg', currentTheme.panelBg);
     root.style.setProperty('--accent-color', currentTheme.accentColor);
     root.style.setProperty('--accent-glow', currentTheme.accentGlow);
     root.style.setProperty('--text-color', currentTheme.textColor);
     root.style.setProperty('--border-style', currentTheme.borderStyle);
-    root.style.setProperty('--bg-image', currentTheme.bgImage);
     root.style.fontFamily = currentTheme.fontFamily;
+    
+    // 主題圖騰邏輯：一半幾何，一半漸層
+    let pattern = 'none';
+    
+    switch (currentTheme.id) {
+      case 'cyber': // 方形
+        pattern = `linear-gradient(rgba(0, 242, 255, 0.05) 1px, transparent 1px), 
+                   linear-gradient(90deg, rgba(0, 242, 255, 0.05) 1px, transparent 1px)`;
+        root.style.setProperty('--pattern-size', '40px 40px');
+        break;
+      case 'emerald': // 三角形 (利用線性漸層模擬)
+        pattern = `linear-gradient(45deg, rgba(16, 185, 129, 0.03) 25%, transparent 25%), 
+                   linear-gradient(-45deg, rgba(16, 185, 129, 0.03) 25%, transparent 25%)`;
+        root.style.setProperty('--pattern-size', '60px 60px');
+        break;
+      case 'amethyst': // 圓形
+        pattern = `radial-gradient(circle at 10px 10px, rgba(217, 70, 239, 0.08) 2px, transparent 0)`;
+        root.style.setProperty('--pattern-size', '30px 30px');
+        break;
+      case 'carbon': // 複和方形
+        pattern = `linear-gradient(45deg, rgba(255,255,255,0.02) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.02) 75%, rgba(255,255,255,0.02))`;
+        root.style.setProperty('--pattern-size', '20px 20px');
+        break;
+      default: // 其餘純漸層
+        pattern = 'none';
+        break;
+    }
+    
+    root.style.setProperty('--bg-pattern', pattern);
   }, [currentTheme]);
 
-  // Stats Logic
   const getProjectStats = (projectId: string) => {
     const project = data.projects.find(p => p.id === projectId);
     if (!project) return { totalRemaining: 0, subStats: [], totalBudget: 0, totalSpent: 0 };
@@ -175,26 +199,25 @@ const App = () => {
     setData(prev => ({ ...prev, transactions: prev.transactions.filter(t => t.id !== id) }));
   };
 
-  // Render Functions
   const renderProjectList = () => (
-    <div className="p-4 space-y-4 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 min-h-screen">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold tech-font tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-[var(--accent-color)] to-[var(--text-color)] accent-glow">
+    <div className="flex flex-col h-full animate-in">
+      <header className="px-6 pt-12 pb-6 flex items-center justify-between shrink-0">
+        <h1 className="text-3xl font-black tech-font tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-[var(--accent-color)] accent-glow">
           項目總覽
         </h1>
         <button 
           onClick={() => setView({ type: 'THEME_SETTINGS' })}
-          className="p-3 glass-panel rounded-full accent-text active:scale-90 transition-transform neo-shadow"
+          className="p-3 glass-panel rounded-2xl accent-text active:scale-90 transition-all neo-shadow"
         >
-          <Palette size={20} />
+          <Palette size={22} />
         </button>
-      </div>
+      </header>
 
-      <div className="grid gap-4">
+      <div className="flex-1 overflow-y-auto px-6 space-y-5 pb-24 hide-scrollbar">
         {data.projects.length === 0 && (
-          <div className="text-center py-20 text-slate-500 bg-black/40 rounded-3xl backdrop-blur-md">
-            <Wallet className="mx-auto mb-4 opacity-10" size={64} />
-            <p>點擊下方按鈕開始建立項目</p>
+          <div className="text-center py-24 text-slate-500 glass-panel rounded-3xl border-dashed">
+            <Wallet className="mx-auto mb-4 opacity-20" size={64} />
+            <p className="font-medium">歡迎使用，建立第一個預算項目</p>
           </div>
         )}
         {data.projects.sort((a,b) => b.createdAt - a.createdAt).map(p => {
@@ -203,23 +226,25 @@ const App = () => {
             <div 
               key={p.id}
               onClick={() => setView({ type: 'PROJECT_DETAIL', projectId: p.id, tab: 'LIST' })}
-              className="glass-panel p-5 rounded-2xl flex items-center justify-between hover:scale-[1.02] transition-all active:scale-[0.98] group relative overflow-hidden"
-              style={{ border: 'var(--border-style)' }}
+              className="glass-panel p-6 rounded-3xl flex items-center justify-between active:scale-[0.98] transition-all group border-l-4"
+              style={{ borderLeftColor: currentTheme.accentColor }}
             >
-              <div className="flex items-center gap-4">
-                <span className="text-3xl bg-black/40 w-12 h-12 flex items-center justify-center rounded-xl shadow-inner border border-white/5">{p.emoji}</span>
+              <div className="flex items-center gap-5">
+                <div className="w-14 h-14 bg-black/40 flex items-center justify-center rounded-2xl shadow-inner text-3xl">
+                  {p.emoji}
+                </div>
                 <div>
                   <h3 className="text-xl font-bold truncate max-w-[120px]">{p.name}</h3>
-                  <p className="text-slate-500 text-sm">{new Date(p.createdAt).toLocaleDateString()}</p>
+                  <p className="text-slate-500 text-[10px] font-mono uppercase tracking-widest mt-1">{new Date(p.createdAt).toLocaleDateString()}</p>
                 </div>
               </div>
               <div className="text-right">
-                <p className={`tech-font font-bold accent-glow ${totalRemaining >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                <p className={`tech-font font-black text-xl accent-glow ${totalRemaining >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {formatCurrency(totalRemaining)}
                 </p>
-                <div className="flex gap-2 justify-end mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={(e) => { e.stopPropagation(); setEditingProject(p); }} className="p-1 text-slate-400"><Edit3 size={18} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); deleteProject(p.id); }} className="p-1 text-red-400/50"><Trash2 size={18} /></button>
+                <div className="flex gap-3 justify-end mt-3">
+                  <button onClick={(e) => { e.stopPropagation(); setEditingProject(p); }} className="p-1 text-slate-400 hover:accent-text transition-colors"><Edit3 size={18} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); deleteProject(p.id); }} className="p-1 text-red-400/30 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
                 </div>
               </div>
             </div>
@@ -229,9 +254,9 @@ const App = () => {
       
       <button 
         onClick={() => setIsAddingProject(true)}
-        className="fixed bottom-10 right-8 w-16 h-16 accent-bg rounded-full flex items-center justify-center shadow-lg neo-shadow active:scale-90 transition-transform z-50"
+        className="fixed bottom-10 right-8 w-16 h-16 accent-bg rounded-2xl flex items-center justify-center shadow-2xl neo-shadow active:scale-90 transition-all z-50"
       >
-        <Plus color={currentTheme.bgColor} size={32} strokeWidth={3} />
+        <Plus color={currentTheme.bgColor} size={36} strokeWidth={3} />
       </button>
     </div>
   );
@@ -243,100 +268,111 @@ const App = () => {
     const maxValue = Math.max(1, ...subStats.map(s => Math.max(s.budget, s.spent)));
 
     return (
-      <div className="min-h-screen pb-24 animate-in fade-in duration-300">
-        <header className="sticky top-0 z-40 glass-panel border-b border-white/10 px-4 py-4 flex items-center gap-3">
-          <button onClick={() => setView({ type: 'PROJECT_LIST' })} className="p-2"><ChevronLeft /></button>
-          <div className="flex items-center gap-2 flex-1">
-            <span className="text-xl">{project.emoji}</span>
-            <h2 className="text-lg font-bold truncate max-w-[180px]">{project.name}</h2>
+      <div className="flex flex-col h-full animate-in">
+        <header className="sticky top-0 z-40 glass-panel border-b border-white/5 px-6 pt-12 pb-5 flex items-center gap-4 shrink-0">
+          <button onClick={() => setView({ type: 'PROJECT_LIST' })} className="p-2 glass-panel rounded-xl"><ChevronLeft /></button>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{project.emoji}</span>
+            <h2 className="text-xl font-bold truncate max-w-[200px]">{project.name}</h2>
           </div>
         </header>
 
-        <div className="p-4 flex flex-col items-center py-8">
-          <p className="text-slate-300 text-sm mb-1 uppercase tracking-widest bg-black/30 px-3 py-0.5 rounded-full">總剩餘金額</p>
-          <div className={`text-5xl font-bold tech-font ${totalRemaining >= 0 ? 'text-green-500' : 'text-red-500'} accent-glow transition-colors`}>
+        <div className="shrink-0 p-8 flex flex-col items-center">
+          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">剩餘預算</span>
+          <div className={`text-5xl font-black tech-font ${totalRemaining >= 0 ? 'text-green-400' : 'text-red-400'} accent-glow`}>
             {formatCurrency(totalRemaining)}
           </div>
-          <div className="mt-2 px-3 py-1 bg-black/40 rounded-full border border-white/10">
-            <p className="text-slate-400 text-xs font-medium">預算: {formatCurrency(totalBudget)}</p>
+          <div className="mt-4 px-5 py-1.5 bg-black/50 rounded-full border border-white/5 shadow-inner">
+            <p className="text-slate-400 text-[10px] font-bold tracking-widest">TOTAL: {formatCurrency(totalBudget)}</p>
           </div>
         </div>
 
-        <div className="flex px-4 mb-6">
-          <div className="bg-black/60 rounded-2xl p-1 flex w-full border border-white/10 backdrop-blur-md">
-            <button onClick={() => setView({ ...view, tab: 'LIST' } as ViewState)} className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 transition-all ${tab === 'LIST' ? 'accent-bg text-[var(--bg-color)] font-bold shadow-lg' : 'text-slate-400'}`}>
-              <List size={18} /> 明細
+        <div className="shrink-0 px-6 mb-6">
+          <div className="bg-black/40 rounded-2xl p-1.5 flex w-full border border-white/5 backdrop-blur-xl">
+            <button onClick={() => setView({ ...view, tab: 'LIST' } as ViewState)} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 transition-all ${tab === 'LIST' ? 'accent-bg text-[var(--bg-color)] font-black shadow-xl' : 'text-slate-500 font-bold'}`}>
+              <List size={20} /> 清單
             </button>
-            <button onClick={() => setView({ ...view, tab: 'CHART' } as ViewState)} className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 transition-all ${tab === 'CHART' ? 'accent-bg text-[var(--bg-color)] font-bold shadow-lg' : 'text-slate-400'}`}>
-              <BarChart2 size={18} /> 分析
+            <button onClick={() => setView({ ...view, tab: 'CHART' } as ViewState)} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 transition-all ${tab === 'CHART' ? 'accent-bg text-[var(--bg-color)] font-black shadow-xl' : 'text-slate-500 font-bold'}`}>
+              <BarChart2 size={20} /> 分析
             </button>
           </div>
         </div>
 
-        {tab === 'LIST' ? (
-          <div className="px-4 space-y-3">
-            {subStats.map(sub => (
+        <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-24 hide-scrollbar">
+          {tab === 'LIST' ? (
+            subStats.map(sub => (
               <div 
                 key={sub.id} 
                 onClick={() => setView({ type: 'TRANSACTION_HISTORY', subCategoryId: sub.id, projectId })}
-                className="glass-panel p-4 rounded-xl flex items-center justify-between active:scale-[0.98] transition-all relative overflow-hidden group"
-                style={{ border: 'var(--border-style)' }}
+                className="glass-panel p-5 rounded-3xl flex items-center justify-between active:scale-[0.98] transition-all group overflow-hidden"
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl group-active:scale-125 transition-transform">{sub.emoji}</span>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-black/30 rounded-2xl flex items-center justify-center text-2xl group-active:scale-110 transition-transform">
+                    {sub.emoji}
+                  </div>
                   <div>
-                    <p className="font-bold flex items-center gap-2">
+                    <p className="font-bold text-lg flex items-center gap-2">
                       {sub.name}
-                      {(sub as any).isFreeMoney && <span className="text-[10px] bg-amber-400 text-black px-1.5 py-0.5 rounded-sm font-black">AUTO</span>}
+                      {(sub as any).isFreeMoney && <span className="text-[9px] bg-[var(--accent-color)] text-[var(--bg-color)] px-1.5 py-0.5 rounded-md font-black">AUTO</span>}
                     </p>
-                    <p className="text-xs text-slate-400">預算: {formatCurrency(sub.budget)}</p>
+                    <div className="w-24 h-1.5 bg-black/40 rounded-full mt-1 overflow-hidden border border-white/5">
+                      <div 
+                        className={`h-full transition-all duration-1000 ${sub.spent > sub.budget ? 'bg-red-500' : 'bg-[var(--accent-color)]'}`} 
+                        style={{ width: `${Math.min(100, (sub.spent / (sub.budget || 1)) * 100)}%` }}
+                      ></div>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <p className={`font-bold ${sub.remaining >= 0 ? 'text-green-500' : 'text-red-500'}`}>{formatCurrency(sub.remaining)}</p>
-                    <p className="text-[10px] text-slate-500 uppercase font-bold">剩餘</p>
+                    <p className={`font-black text-lg ${sub.remaining >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(sub.remaining)}</p>
+                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">REMAINING</p>
                   </div>
                   {!(sub as any).isFreeMoney && (
                     <button 
                       onClick={(e) => { e.stopPropagation(); setActiveSubCategoryModal({ type: 'EDIT', sub }); }}
-                      className="p-2 text-slate-500 hover:accent-text"
+                      className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:accent-text active:scale-90 transition-all"
                     >
-                      <Settings2 size={16} />
+                      <Settings2 size={18} />
                     </button>
                   )}
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="px-4 pb-8">
-             <div className="flex items-end gap-6 overflow-x-auto h-72 pb-12 pt-4 px-2 no-scrollbar border-b border-white/10 bg-black/30 rounded-t-3xl backdrop-blur-sm">
-                {subStats.map(sub => {
-                  const budgetHeight = (sub.budget / maxValue) * 100;
-                  const spentHeight = (sub.spent / maxValue) * 100;
-                  return (
-                    <div key={sub.id} className="flex flex-col items-center min-w-[70px] h-full justify-end">
-                      <div className="flex gap-1.5 h-full items-end w-full justify-center">
-                        <div className="w-4 bg-slate-700/50 rounded-t-sm" style={{ height: `${budgetHeight}%` }}></div>
-                        <div className={`w-4 rounded-t-sm ${sub.spent > sub.budget ? 'bg-red-500' : 'bg-green-500'} shadow-lg`} style={{ height: `${spentHeight}%` }}></div>
+            ))
+          ) : (
+            <div className="animate-in slide-in-from-bottom-4">
+               <div className="glass-panel rounded-[2.5rem] p-8 min-h-[300px] flex items-end justify-around gap-2 relative overflow-hidden">
+                  <div className="absolute top-6 left-8">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">支出佔比分析</h3>
+                  </div>
+                  {subStats.map(sub => {
+                    const spentHeight = (sub.spent / maxValue) * 100;
+                    return (
+                      <div key={sub.id} className="flex flex-col items-center group w-10 shrink-0">
+                        <div className="relative flex flex-col items-center justify-end h-40 w-full">
+                          <div 
+                            className={`w-full rounded-2xl ${sub.spent > sub.budget ? 'bg-red-500' : 'accent-bg'} shadow-2xl transition-all duration-1000 ease-out`} 
+                            style={{ height: `${Math.max(4, spentHeight)}%` }}
+                          >
+                          </div>
+                        </div>
+                        <div className="mt-4 text-center">
+                          <span className="text-xl block mb-1">{sub.emoji}</span>
+                          <span className="text-[8px] text-slate-400 font-black truncate w-10 block uppercase tracking-tighter">{sub.name}</span>
+                        </div>
                       </div>
-                      <div className="mt-2 text-center">
-                        <span className="text-lg block">{sub.emoji}</span>
-                        <span className="text-[10px] text-slate-400 truncate w-[60px] block font-bold">{sub.name}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-             </div>
-          </div>
-        )}
+                    );
+                  })}
+               </div>
+            </div>
+          )}
+        </div>
 
         <button 
           onClick={() => setActiveSubCategoryModal({ type: 'ADD' })}
-          className="fixed bottom-10 right-8 w-16 h-16 accent-bg rounded-full flex items-center justify-center shadow-lg neo-shadow active:scale-90 transition-transform z-50"
+          className="fixed bottom-10 right-8 w-16 h-16 accent-bg rounded-2xl flex items-center justify-center shadow-2xl neo-shadow active:scale-90 transition-all z-50"
         >
-          <Plus color={currentTheme.bgColor} size={32} strokeWidth={3} />
+          <Plus color={currentTheme.bgColor} size={36} strokeWidth={3} />
         </button>
       </div>
     );
@@ -349,33 +385,36 @@ const App = () => {
     if (!sub) return null;
 
     return (
-      <div className="min-h-screen pb-24 animate-in slide-in-from-right-4 duration-300">
-        <header className="sticky top-0 z-40 glass-panel border-b border-white/10 px-4 py-4 flex items-center gap-4">
-          <button onClick={() => setView({ type: 'PROJECT_DETAIL', projectId, tab: 'LIST' })} className="p-2"><ChevronLeft /></button>
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{sub.emoji}</span>
-            <h2 className="text-lg font-bold">{sub.name} 記錄</h2>
+      <div className="flex flex-col h-full animate-in">
+        <header className="sticky top-0 z-40 glass-panel border-b border-white/5 px-6 pt-12 pb-5 flex items-center gap-4 shrink-0">
+          <button onClick={() => setView({ type: 'PROJECT_DETAIL', projectId, tab: 'LIST' })} className="p-2 glass-panel rounded-xl"><ChevronLeft /></button>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{sub.emoji}</span>
+            <h2 className="text-xl font-bold">{sub.name} 記錄</h2>
           </div>
         </header>
 
-        <div className="p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-24 hide-scrollbar">
           {txs.length === 0 && (
-            <div className="text-center py-20 text-slate-500 bg-black/40 rounded-3xl backdrop-blur-md">
-              <Calendar className="mx-auto mb-4 opacity-20" size={48} />
-              <p>尚無支出記錄</p>
+            <div className="text-center py-32 glass-panel rounded-[2rem]">
+              <Calendar className="mx-auto mb-4 opacity-10" size={64} />
+              <p className="text-slate-500 font-bold">尚無任何支出資料</p>
             </div>
           )}
           {txs.map(t => (
-            <div key={t.id} className="glass-panel p-4 rounded-xl flex items-center justify-between group active:scale-[0.98] transition-all" style={{ border: 'var(--border-style)' }}>
-              <div onClick={() => setActiveTransactionModal({ type: 'EDIT', subId: subCategoryId, tx: t })}>
-                <p className="font-bold flex items-center gap-2">{t.name} <Edit3 size={14} className="text-slate-600 group-hover:accent-text" /></p>
-                <p className="text-xs text-slate-500">{new Date(t.date).toLocaleString()}</p>
+            <div key={t.id} className="glass-panel p-5 rounded-3xl flex items-center justify-between group active:scale-[0.98] transition-all">
+              <div className="flex-1" onClick={() => setActiveTransactionModal({ type: 'EDIT', subId: subCategoryId, tx: t })}>
+                <p className="font-bold text-lg flex items-center gap-2">
+                  {t.name} 
+                  <Edit3 size={14} className="text-slate-600 group-hover:accent-text" />
+                </p>
+                <p className="text-[10px] text-slate-500 font-mono mt-1">{new Date(t.date).toLocaleString('zh-TW', { hour12: false })}</p>
               </div>
               <div className="flex items-center gap-4">
-                <p className={`font-bold tech-font ${t.amount < 0 ? 'text-green-500' : 'text-red-500'}`}>
+                <p className={`font-black tech-font text-lg ${t.amount < 0 ? 'text-green-400' : 'text-red-400'}`}>
                    {formatCurrency(t.amount)}
                 </p>
-                <button onClick={() => deleteTransaction(t.id)} className="text-slate-500 hover:text-red-500 p-2"><Trash2 size={16} /></button>
+                <button onClick={() => deleteTransaction(t.id)} className="p-3 bg-red-500/5 text-red-400/50 hover:text-red-500 hover:bg-red-500/10 rounded-2xl transition-all"><Trash2 size={18} /></button>
               </div>
             </div>
           ))}
@@ -383,9 +422,9 @@ const App = () => {
 
         <button 
           onClick={() => setActiveTransactionModal({ type: 'ADD', subId: subCategoryId })}
-          className="fixed bottom-10 right-8 w-16 h-16 accent-bg rounded-full flex items-center justify-center shadow-lg neo-shadow active:scale-90 transition-transform z-50"
+          className="fixed bottom-10 right-8 w-16 h-16 accent-bg rounded-2xl flex items-center justify-center shadow-2xl neo-shadow active:scale-90 transition-all z-50"
         >
-          <Plus color={currentTheme.bgColor} size={32} strokeWidth={3} />
+          <Plus color={currentTheme.bgColor} size={36} strokeWidth={3} />
         </button>
       </div>
     );
@@ -397,43 +436,48 @@ const App = () => {
     const [budget, setBudget] = useState(sub?.budget.toString() || '');
 
     return (
-      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-md">
-        <div className="bg-[var(--bg-color)] w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold accent-text">{type === 'ADD' ? '新增支項' : '編輯支項'}</h3>
+      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-xl">
+        <div className="bg-[var(--bg-color)] w-full max-w-md rounded-[2.5rem] p-8 border border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-2xl font-black accent-text tracking-tight">{type === 'ADD' ? '新增預算支項' : '編輯支項設定'}</h3>
             {type === 'EDIT' && (
-               <button onClick={() => deleteSubCategory(sub!.id)} className="text-red-500 p-2"><Trash2 size={20}/></button>
+               <button onClick={() => deleteSubCategory(sub!.id)} className="w-12 h-12 flex items-center justify-center bg-red-500/10 text-red-500 rounded-2xl active:scale-90 transition-transform"><Trash2 size={24}/></button>
             )}
           </div>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <button className="bg-black/40 p-4 rounded-xl text-2xl border border-white/10 h-14 w-14 flex items-center justify-center shrink-0">{emoji}</button>
-              <input 
-                className="flex-1 min-w-0 bg-black/40 rounded-xl p-4 border border-white/10 focus:accent-border h-14 text-white" 
-                placeholder="名稱" value={name} onChange={e => setName(e.target.value)} 
-              />
+          <div className="space-y-6">
+            <div className="flex gap-4">
+              <button className="bg-black/50 w-20 h-20 rounded-3xl text-4xl border border-white/5 flex items-center justify-center shrink-0 shadow-inner">{emoji}</button>
+              <div className="flex-1 space-y-4">
+                <input 
+                  className="w-full bg-black/50 rounded-2xl p-5 border border-white/5 focus:accent-border text-white text-lg font-bold placeholder:text-slate-700" 
+                  placeholder="支項名稱 (例: 伙食)" value={name} onChange={e => setName(e.target.value)} 
+                />
+              </div>
             </div>
-            <input 
-              type="number" inputMode="decimal" className="w-full bg-black/40 rounded-xl p-4 tech-font border border-white/10 focus:accent-border h-14 text-white" 
-              placeholder="支項預算" value={budget} onChange={e => setBudget(e.target.value)} 
-            />
-            <div className="grid grid-cols-8 gap-2 max-h-40 overflow-y-auto p-2 bg-black/40 rounded-xl border border-white/10">
+            <div className="relative">
+              <input 
+                type="number" inputMode="decimal" className="w-full bg-black/50 rounded-2xl p-5 tech-font border border-white/5 focus:accent-border text-white text-2xl font-black" 
+                placeholder="預算金額" value={budget} onChange={e => setBudget(e.target.value)} 
+              />
+              <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-600 font-black">TWD</span>
+            </div>
+            <div className="grid grid-cols-6 gap-3 max-h-48 overflow-y-auto p-4 bg-black/40 rounded-[2rem] border border-white/5 no-scrollbar">
               {EMOJIS.map(e => (
-                <button key={e} onClick={() => setEmoji(e)} className={`text-xl p-1.5 rounded-lg transition-all ${emoji === e ? 'accent-bg scale-110' : 'hover:bg-white/5'}`}>{e}</button>
+                <button key={e} onClick={() => setEmoji(e)} className={`text-2xl p-2 rounded-xl transition-all ${emoji === e ? 'accent-bg scale-110 shadow-lg' : 'hover:bg-white/5 active:scale-90'}`}>{e}</button>
               ))}
             </div>
           </div>
-          <div className="flex gap-3 mt-8">
-            <button onClick={onClose} className="flex-1 py-4 text-slate-400 font-bold">取消</button>
+          <div className="flex gap-4 mt-10">
+            <button onClick={onClose} className="flex-1 py-5 text-slate-500 font-black tracking-widest uppercase active:scale-95 transition-all">Cancel</button>
             <button 
               disabled={!name || !budget}
               onClick={() => {
                 saveSubCategory(name, emoji, Number(budget), projectId, sub?.id);
                 onClose();
               }}
-              className="flex-1 py-4 accent-bg text-[var(--bg-color)] rounded-xl font-bold shadow-lg disabled:opacity-30"
+              className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black shadow-2xl disabled:opacity-20 active:scale-95 transition-all"
             >
-              確定
+              SAVE DATA
             </button>
           </div>
         </div>
@@ -446,24 +490,31 @@ const App = () => {
     const [amount, setAmount] = useState(tx?.amount.toString() || '');
 
     return (
-      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-md">
-        <div className="bg-[var(--bg-color)] w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
-          <h3 className="text-xl font-bold mb-6 accent-text">{type === 'ADD' ? '新增支出/收入' : '編輯記錄'}</h3>
-          <div className="space-y-4">
-            <input className="w-full bg-black/40 rounded-xl p-4 border border-white/10 focus:accent-border text-white" placeholder="名稱 (預設今日日期)" value={name} onChange={e => setName(e.target.value)} />
-            <input type="number" inputMode="decimal" className="w-full bg-black/40 rounded-xl p-4 tech-font border border-white/10 focus:accent-border text-white" placeholder="金額 (負數代表收入)" value={amount} onChange={e => setAmount(e.target.value)} />
+      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-xl">
+        <div className="bg-[var(--bg-color)] w-full max-w-md rounded-[2.5rem] p-8 border border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
+          <h3 className="text-2xl font-black mb-8 accent-text tracking-tight">{type === 'ADD' ? '新增收支記錄' : '修正支出資訊'}</h3>
+          <div className="space-y-6">
+            <input className="w-full bg-black/50 rounded-2xl p-5 border border-white/5 focus:accent-border text-white text-lg font-bold" placeholder="消費描述 (預設日期)" value={name} onChange={e => setName(e.target.value)} />
+            <div className="relative">
+              <input type="number" inputMode="decimal" className="w-full bg-black/50 rounded-2xl p-5 tech-font border border-white/5 focus:accent-border text-white text-3xl font-black" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+              <div className="absolute right-5 top-1/2 -translate-y-1/2 flex flex-col items-end">
+                <span className="text-[10px] text-slate-500 font-black uppercase">Amount</span>
+                <span className="text-slate-400 font-black">TWD</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-500 font-bold px-2">提示：輸入正數為支出，負數為收入 (例如預算回補)</p>
           </div>
-          <div className="flex gap-3 mt-8">
-            <button onClick={onClose} className="flex-1 py-4 text-slate-400 font-bold">取消</button>
+          <div className="flex gap-4 mt-10">
+            <button onClick={onClose} className="flex-1 py-5 text-slate-500 font-black tracking-widest uppercase">Cancel</button>
             <button 
               disabled={!amount}
               onClick={() => {
                 saveTransaction(name, Number(amount), subId, tx?.id);
                 onClose();
               }}
-              className="flex-1 py-4 accent-bg text-[var(--bg-color)] rounded-xl font-bold shadow-lg disabled:opacity-30"
+              className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black shadow-2xl active:scale-95 transition-all"
             >
-              確定
+              CONFIRM
             </button>
           </div>
         </div>
@@ -477,21 +528,24 @@ const App = () => {
     const [budget, setBudget] = useState(project ? project.totalBudget.toString() : '');
 
     return (
-      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-md">
-        <div className="bg-[var(--bg-color)] w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
-          <h3 className="text-xl font-bold mb-6 flex items-center gap-2 accent-text"><Wallet size={24} /> {project ? '編輯項目' : '建立新項目'}</h3>
-          <div className="space-y-4">
-            <input className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white placeholder-slate-600 focus:accent-border" placeholder="項目名稱" value={name} onChange={e => setName(e.target.value)} />
-            <input type="number" inputMode="decimal" className="w-full bg-black/40 border border-white/10 rounded-xl p-4 tech-font focus:accent-border text-white" placeholder="總預算金額" value={budget} onChange={e => setBudget(e.target.value)} />
-            <div className="grid grid-cols-8 gap-2 max-h-40 overflow-y-auto p-1 bg-black/40 rounded-xl border border-white/10">
+      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-4 bg-black/80 backdrop-blur-xl">
+        <div className="bg-[var(--bg-color)] w-full max-w-md rounded-[2.5rem] p-8 border border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
+          <h3 className="text-2xl font-black mb-8 flex items-center gap-3 accent-text tracking-tight"><Wallet size={28} /> {project ? '調整項目核心' : '啟動新預算項目'}</h3>
+          <div className="space-y-6">
+            <input className="w-full bg-black/50 border border-white/5 rounded-2xl p-5 text-white text-lg font-bold placeholder:text-slate-700 focus:accent-border" placeholder="項目標題" value={name} onChange={e => setName(e.target.value)} />
+            <div className="relative">
+              <input type="number" inputMode="decimal" className="w-full bg-black/50 border border-white/5 rounded-2xl p-5 tech-font focus:accent-border text-white text-3xl font-black" placeholder="0" value={budget} onChange={e => setBudget(e.target.value)} />
+              <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-600 font-black">TWD</span>
+            </div>
+            <div className="grid grid-cols-6 gap-3 max-h-40 overflow-y-auto p-4 bg-black/40 rounded-[2rem] border border-white/5 no-scrollbar">
               {EMOJIS.map(e => (
-                <button key={e} onClick={() => setEmoji(e)} className={`text-2xl p-2 rounded-xl transition-all ${emoji === e ? 'accent-bg scale-110 shadow-lg' : 'hover:bg-white/5'}`}>{e}</button>
+                <button key={e} onClick={() => setEmoji(e)} className={`text-3xl p-2 rounded-xl transition-all ${emoji === e ? 'accent-bg scale-110 shadow-2xl' : 'hover:bg-white/5 active:scale-90'}`}>{e}</button>
               ))}
             </div>
           </div>
-          <div className="flex gap-3 mt-8">
-            <button onClick={onClose} className="flex-1 py-4 text-slate-400 font-bold">取消</button>
-            <button disabled={!name || !budget} onClick={() => { project ? updateProject(project.id, name, emoji, Number(budget)) : addProject(name, emoji, Number(budget)); onClose(); }} className="flex-1 py-4 accent-bg text-[var(--bg-color)] rounded-xl font-bold shadow-lg">確定</button>
+          <div className="flex gap-4 mt-10">
+            <button onClick={onClose} className="flex-1 py-5 text-slate-500 font-black tracking-widest uppercase">Cancel</button>
+            <button disabled={!name || !budget} onClick={() => { project ? updateProject(project.id, name, emoji, Number(budget)) : addProject(name, emoji, Number(budget)); onClose(); }} className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black shadow-2xl active:scale-95 transition-all">INITIALIZE</button>
           </div>
         </div>
       </div>
@@ -499,50 +553,49 @@ const App = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen relative shadow-2xl overflow-x-hidden selection:bg-[var(--accent-color)]/30">
-      {/* 讓內容浮在背景上的透明層 */}
-      <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
-      
-      <div className="relative z-10">
+    <div className="max-w-md mx-auto h-full relative shadow-2xl overflow-hidden selection:bg-[var(--accent-color)]/30">
+      <div className="relative z-10 h-full">
         {view.type === 'PROJECT_LIST' && renderProjectList()}
         {view.type === 'THEME_SETTINGS' && (
-          <div className="p-4 pb-12 animate-in slide-in-from-right-4 duration-300 min-h-screen">
-            <header className="flex items-center gap-4 mb-8">
-              <button onClick={() => setView({ type: 'PROJECT_LIST' })} className="p-2"><ChevronLeft /></button>
-              <h2 className="text-2xl font-bold tech-font accent-text">主題選擇</h2>
+          <div className="flex flex-col h-full animate-in slide-in-from-right-8">
+            <header className="px-6 pt-12 pb-6 flex items-center gap-4 shrink-0">
+              <button onClick={() => setView({ type: 'PROJECT_LIST' })} className="p-3 glass-panel rounded-2xl active:scale-90 transition-all"><ChevronLeft /></button>
+              <h2 className="text-2xl font-black tech-font accent-text tracking-tighter uppercase">Visual Interface</h2>
             </header>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex-1 overflow-y-auto px-6 grid grid-cols-2 gap-5 pb-24 hide-scrollbar">
               {THEMES.map(t => (
                 <button 
                   key={t.id} 
                   onClick={() => setCurrentTheme(t)} 
-                  className={`p-4 rounded-3xl glass-panel relative overflow-hidden transition-all group ${currentTheme.id === t.id ? 'accent-border ring-4 ring-[var(--accent-color)]/30 scale-105' : 'border-white/10 opacity-80 hover:opacity-100 hover:scale-[1.02]'}`} 
-                  style={{ backgroundColor: t.panelBg, border: t.borderStyle }}
+                  className={`p-5 rounded-[2rem] glass-panel relative overflow-hidden transition-all group border-2 ${currentTheme.id === t.id ? 'accent-border ring-8 ring-[var(--accent-glow)] scale-105' : 'border-white/5 opacity-60 hover:opacity-100'}`} 
+                  style={{ background: t.bgImage }}
                 >
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl border-2 border-white/20 shadow-2xl flex items-center justify-center text-xl overflow-hidden" style={{ backgroundColor: t.accentColor }}>
-                      <div className="w-full h-full opacity-30 bg-black/20 animate-pulse"></div>
+                  <div className="flex flex-col items-center gap-4 relative z-10">
+                    <div className="w-16 h-16 rounded-2xl border-4 border-white/10 shadow-2xl flex items-center justify-center relative overflow-hidden" style={{ backgroundColor: t.accentColor }}>
+                      <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
                     </div>
-                    <span className="text-sm font-black tracking-widest uppercase" style={{ color: t.textColor }}>{t.name}</span>
+                    <span className="text-[10px] font-black tracking-[0.2em] uppercase" style={{ color: t.textColor }}>{t.name}</span>
                   </div>
                   {currentTheme.id === t.id && (
-                    <div className="absolute top-2 right-2 accent-text bg-[var(--bg-color)] rounded-full p-0.5 shadow-md">
-                      <Check size={16} strokeWidth={4} />
+                    <div className="absolute top-3 right-3 accent-text bg-[var(--bg-color)] rounded-full p-1 shadow-lg border border-white/10">
+                      <Check size={14} strokeWidth={4} />
                     </div>
                   )}
+                  <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '8px 8px' }}></div>
                 </button>
               ))}
+              <div className="col-span-2 mt-4 p-6 glass-panel rounded-3xl border-dashed">
+                <p className="text-center text-slate-500 text-[10px] font-black uppercase tracking-widest leading-relaxed">
+                  System optimized for mobile interface<br/>Pure CSS Rendering Engine v2.0
+                </p>
+              </div>
             </div>
-            <p className="mt-8 text-center text-slate-400 text-xs px-4">
-              提示：請確保根目錄已有 <code className="bg-black/40 px-1 rounded">bg-1.jpg</code> 至 <code className="bg-black/40 px-1 rounded">bg-8.jpg</code> 對應圖片。
-            </p>
           </div>
         )}
         {view.type === 'PROJECT_DETAIL' && renderProjectDetail(view.projectId, view.tab)}
         {view.type === 'TRANSACTION_HISTORY' && renderHistory(view.subCategoryId, view.projectId)}
       </div>
 
-      {/* Global Modals */}
       {isAddingProject && <ProjectFormModal onClose={() => setIsAddingProject(false)} />}
       {editingProject && <ProjectFormModal project={editingProject} onClose={() => setEditingProject(null)} />}
       

@@ -499,9 +499,9 @@ const App = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen relative shadow-2xl overflow-x-hidden selection:bg-[var(--accent-color)]/30 bg-fixed bg-center bg-cover" style={{ backgroundImage: 'var(--bg-image)' }}>
-      {/* Background Overlay for better readability */}
-      <div className="absolute inset-0 bg-black/20 pointer-events-none"></div>
+    <div className="max-w-md mx-auto min-h-screen relative shadow-2xl overflow-x-hidden selection:bg-[var(--accent-color)]/30">
+      {/* 讓內容浮在背景上的透明層 */}
+      <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
       
       <div className="relative z-10">
         {view.type === 'PROJECT_LIST' && renderProjectList()}

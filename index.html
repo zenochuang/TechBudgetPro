@@ -28,22 +28,25 @@
             --bg-image: none;
         }
 
-        html, body {
-            height: 100%;
-            margin: 0;
-            padding: 0;
+        /* 將底色設在 html 層，作為圖片加載前的墊底 */
+        html {
             background-color: var(--bg-color);
+            height: 100%;
         }
 
         body {
             font-family: 'Noto Sans TC', sans-serif;
             color: var(--text-color);
+            background-color: transparent !important; /* 必須透明，圖片才看得到 */
             -webkit-tap-highlight-color: transparent;
             overflow-x: hidden;
             transition: color 0.5s ease;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
         }
 
-        /* 高相容性背景技術 */
+        /* 偽元素背景技術：解決手機端固定背景的相容性問題 */
         body::before {
             content: "";
             position: fixed;
@@ -51,12 +54,11 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: -1;
+            z-index: -1; /* 位於所有內容之下，html 之上 */
             background-image: var(--bg-image);
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-            background-color: var(--bg-color);
             transition: background-image 0.8s ease-in-out;
             pointer-events: none;
         }

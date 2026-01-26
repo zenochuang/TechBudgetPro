@@ -1,26 +1,40 @@
 
+export interface PaymentMethod {
+  id: string;
+  name: string;
+  emoji: string;
+  statementDay?: number; // 結帳日 (1-31)
+}
+
 export interface Transaction {
   id: string;
   subCategoryId: string;
+  paymentMethodId: string; // 支付渠道 ID
   name: string;
   amount: number;
-  date: number;
+  date: number; // 原始交易時間
 }
 
 export interface SubCategory {
   id: string;
-  projectId: string;
+  projectId: string; // 對應月份卡片的 ID (YYYY-MM)
   name: string;
   emoji: string;
   budget: number;
 }
 
 export interface Project {
-  id: string;
-  name: string;
+  id: string; // YYYY-MM
+  year: number;
+  month: number;
   emoji: string;
   totalBudget: number;
   createdAt: number;
+}
+
+export interface YearConfig {
+  year: number;
+  isCollapsed: boolean;
 }
 
 export interface Theme {
@@ -37,8 +51,8 @@ export interface Theme {
 }
 
 export type ViewState = 
-  | { type: 'PROJECT_LIST' }
-  | { type: 'PROJECT_DETAIL'; projectId: string; tab: 'LIST' | 'CHART' }
+  | { type: 'PROJECT_LIST'; tab: 'BUDGET' | 'PAYMENT' }
+  | { type: 'PROJECT_DETAIL'; projectId: string }
   | { type: 'TRANSACTION_HISTORY'; subCategoryId: string; projectId: string }
   | { type: 'THEME_SETTINGS' };
 

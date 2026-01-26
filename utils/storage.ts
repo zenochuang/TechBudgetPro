@@ -1,12 +1,15 @@
 
-import { Project, SubCategory, Transaction } from '../types';
+import { Project, SubCategory, Transaction, PaymentMethod, YearConfig } from '../types';
 
-const STORAGE_KEY = 'TECH_BUDGET_PRO_DATA';
+const STORAGE_KEY = 'TECH_BUDGET_PRO_V3_DATA';
 
 interface AppData {
   projects: Project[];
   subCategories: SubCategory[];
   transactions: Transaction[];
+  paymentMethods: PaymentMethod[];
+  yearConfigs: YearConfig[];
+  themeId?: string;
 }
 
 export const loadData = (): AppData => {
@@ -18,7 +21,13 @@ export const loadData = (): AppData => {
       console.error('Failed to parse storage', e);
     }
   }
-  return { projects: [], subCategories: [], transactions: [] };
+  return { 
+    projects: [], 
+    subCategories: [], 
+    transactions: [], 
+    paymentMethods: [{ id: 'cash', name: '現金', emoji: '💵' }],
+    yearConfigs: [{ year: new Date().getFullYear(), isCollapsed: false }]
+  };
 };
 
 export const saveData = (data: AppData) => {

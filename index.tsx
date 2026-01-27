@@ -17,9 +17,10 @@ import {
   ChevronUp,
   History,
   Info,
-  Settings
+  Settings,
+  ArrowRight
 } from 'lucide-react';
-import { Project, SubCategory, Transaction, ViewState, EMOJIS, Theme, PaymentMethod, YearConfig } from './types';
+import { Project, SubCategory, Transaction, ViewState, EMOJIS, Theme, PaymentMethod, YearConfig, PaymentCycleConfig } from './types';
 import { THEMES, formatCurrency } from './constants';
 import { loadData, saveData } from './utils/storage';
 
@@ -48,7 +49,7 @@ const App = () => {
   const [activeTransactionModal, setActiveTransactionModal] = useState<{ type: 'ADD' | 'EDIT', subId: string, tx?: Transaction } | null>(null);
   const [isEditProjectModal, setIsEditProjectModal] = useState<Project | null>(null);
   
-  // 新增：客製化確認視窗狀態，取代原生 window.confirm 以避免手機端阻擋
+  // 客製化確認視窗狀態
   const [confirmModal, setConfirmModal] = useState<{ 
     isOpen: boolean; 
     title: string; 
@@ -135,7 +136,6 @@ const App = () => {
     alert(`已完成 ${lastYear} 年結算，已為您開啟 ${lastYear + 1} 年預算表。`);
   };
 
-  // 刪除年度邏輯 (使用客製化 Modal)
   const deleteYear = (year: number) => {
     const currentYearNum = new Date().getFullYear();
     if (Number(year) === currentYearNum) {
@@ -192,21 +192,42 @@ const App = () => {
     return { totalRemaining: project.totalBudget - totalSpent, subStats, totalSpent, totalBudget: project.totalBudget };
   };
 
+  // 輔助：根據設定的 月份偏移 與 日期，取得相對於目標年月的實際 Date 物件
+  // 自動處理月底日期溢位問題 (例如 2/31 -> 2/28 or 2/29)
+  const getDateFromConfig = (targetY: number, targetM: number, offsetType: 'PREV' | 'CURRENT' | 'NEXT', day: number) => {
+    let m = targetM;
+    if (offsetType === 'PREV') m -= 1;
+    if (offsetType === 'NEXT') m += 1;
+    
+    // JS Date 月份從 0 開始，所以這裡用 m-1
+    // 設定日期為 1 號，然後切換到該月最後一天，取 min(day, lastDay)
+    const tempDate = new Date(targetY, m - 1, 1);
+    const lastDayOfMonth = new Date(targetY, m, 0).getDate();
+    const actualDay = Math.min(day, lastDayOfMonth);
+    
+    return new Date(targetY, m - 1, actualDay);
+  };
+
   const getPaymentStatsByMonth = (projectId: string) => {
     const [y, m] = projectId.split('-').map(Number);
     return data.paymentMethods.map(method => {
+      // 根據渠道設定的週期計算該「預算月份」的起訖時間
+      // 預設值：本月 1 號 到 本月 31 號
+      const config = method.cycleConfig || { fromType: 'CURRENT', fromDay: 1, toType: 'CURRENT', toDay: 31 };
+      
+      const startDate = getDateFromConfig(y, m, config.fromType, config.fromDay);
+      startDate.setHours(0, 0, 0, 0); // 當天 00:00:00
+
+      const endDate = getDateFromConfig(y, m, config.toType, config.toDay);
+      endDate.setHours(23, 59, 59, 999); // 當天 23:59:59
+
       const total = data.transactions.filter(t => {
         if (t.paymentMethodId !== method.id) return false;
-        const txDate = new Date(t.date);
-        let targetMonth = txDate.getMonth() + 1;
-        let targetYear = txDate.getFullYear();
-        if (method.statementDay && txDate.getDate() > method.statementDay) {
-          targetMonth += 1;
-          if (targetMonth > 12) { targetMonth = 1; targetYear += 1; }
-        }
-        return targetYear === y && targetMonth === m;
+        // 判斷交易日期是否落在計算區間內
+        return t.date >= startDate.getTime() && t.date <= endDate.getTime();
       }).reduce((sum, t) => sum + t.amount, 0);
-      return { ...method, total };
+
+      return { ...method, total, dateRange: { start: startDate, end: endDate } };
     });
   };
 
@@ -253,7 +274,6 @@ const App = () => {
     setIsEditProjectModal(null);
   };
 
-  // 刪除支項邏輯 (使用客製化 Modal)
   const deleteSubCategoryAndPropagate = (subId: string, projectId: string) => {
     const sub = data.subCategories.find(s => s.id === subId);
     if (!sub) return;
@@ -286,7 +306,6 @@ const App = () => {
     });
   };
 
-  // 刪除交易紀錄邏輯 (使用客製化 Modal)
   const confirmDeleteTransaction = (t: Transaction) => {
     setConfirmModal({
       isOpen: true,
@@ -381,11 +400,17 @@ const App = () => {
     const sortedYears = [...data.yearConfigs].sort((a,b) => b.year - a.year);
     const currentYearNum = new Date().getFullYear();
 
+    const getCycleLabel = (type: string) => {
+      if (type === 'PREV') return '上月';
+      if (type === 'NEXT') return '下月';
+      return '本月';
+    };
+
     return (
       <div className="flex-1 overflow-y-auto px-6 space-y-8 pb-32 hide-scrollbar relative">
         <div className="sticky top-0 z-30 pt-4 pb-2 bg-[var(--bg-color)]">
           <button onClick={() => setIsManagingPayments(true)} className="w-full p-4 glass-panel rounded-2xl text-sm accent-text flex items-center justify-center gap-2 font-black shadow-xl border-2 accent-border bg-black/40">
-            <Settings size={18} /> 管理支付渠道與結帳日
+            <Settings size={18} /> 管理支付渠道與結帳週期
           </button>
         </div>
         {sortedYears.map(yc => (
@@ -426,18 +451,23 @@ const App = () => {
                     </h3>
                   </div>
                   <div className="grid grid-cols-1 gap-2.5">
-                    {stats.map(s => (
-                      <div key={s.id} className="flex items-center justify-between bg-black/40 p-4 rounded-2xl border border-white/5">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl">{s.emoji}</span>
-                          <div>
-                            <p className="font-bold text-sm">{s.name}</p>
-                            {s.statementDay && <p className="text-[9px] text-slate-500">每月 {s.statementDay} 號結帳</p>}
+                    {stats.map(s => {
+                      const conf = s.cycleConfig || { fromType: 'CURRENT', fromDay: 1, toType: 'CURRENT', toDay: 31 };
+                      return (
+                        <div key={s.id} className="flex items-center justify-between bg-black/40 p-4 rounded-2xl border border-white/5">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xl">{s.emoji}</span>
+                            <div>
+                              <p className="font-bold text-sm">{s.name}</p>
+                              <p className="text-[9px] text-slate-500 mt-0.5">
+                                {getCycleLabel(conf.fromType)} {conf.fromDay}號 ➔ {getCycleLabel(conf.toType)} {conf.toDay}號
+                              </p>
+                            </div>
                           </div>
+                          <p className={`tech-font font-black ${isCurrent ? 'accent-text' : ''}`}>{formatCurrency(s.total)}</p>
                         </div>
-                        <p className={`tech-font font-black ${isCurrent ? 'accent-text' : ''}`}>{formatCurrency(s.total)}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -533,12 +563,23 @@ const App = () => {
   const PaymentMethodModal = ({ method, onClose }: { method?: PaymentMethod, onClose: () => void }) => {
     const [name, setName] = useState(method?.name || '');
     const [emoji, setEmoji] = useState(method?.emoji || PAYMENT_EMOJIS[0]);
-    const [sDay, setSDay] = useState(method?.statementDay ? String(method.statementDay) : '');
+    
+    // 設定結帳週期狀態
+    const defaultConfig: PaymentCycleConfig = { fromType: 'CURRENT', fromDay: 1, toType: 'CURRENT', toDay: 31 };
+    const [config, setConfig] = useState<PaymentCycleConfig>(method?.cycleConfig || defaultConfig);
+
+    const typeOptions: { label: string, value: 'PREV' | 'CURRENT' | 'NEXT' }[] = [
+      { label: '上月', value: 'PREV' },
+      { label: '本月', value: 'CURRENT' },
+      { label: '下月', value: 'NEXT' }
+    ];
+
+    const dayOptions = Array.from({ length: 31 }, (_, i) => i + 1);
 
     return (
       <div className="fixed inset-0 z-[130] flex items-end justify-center sm:items-center p-4 bg-black/95 backdrop-blur-2xl">
-        <div className="bg-[var(--bg-color)] w-full max-w-sm rounded-[2.5rem] p-8 border border-white/10 shadow-2xl">
-          <h3 className="text-xl font-black mb-8 accent-text">渠道細節設定</h3>
+        <div className="bg-[var(--bg-color)] w-full max-w-sm rounded-[2.5rem] p-8 border border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
+          <h3 className="text-xl font-black mb-6 accent-text">渠道細節與週期</h3>
           <div className="space-y-6">
             <div className="flex gap-4">
               <button className="bg-black/50 w-20 h-20 rounded-3xl text-4xl border border-white/10 flex items-center justify-center shrink-0">{emoji}</button>
@@ -546,74 +587,149 @@ const App = () => {
                 <input className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 text-white font-bold" placeholder="渠道名稱" value={name} onChange={e => setName(e.target.value)} />
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase px-2">結帳日</label>
-              <div className="relative">
-                <select className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 text-white font-black appearance-none focus:accent-border transition-all" value={sDay} onChange={e => setSDay(e.target.value)}>
-                  <option value="" className="bg-slate-900">不設定 (無結帳日)</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (<option key={day} value={day} className="bg-slate-900">{day} 號</option>))}
-                </select>
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500"><ChevronDown size={18} /></div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-500 uppercase px-2">結帳計算區間</label>
+              <div className="bg-black/40 rounded-3xl p-4 border border-white/5 space-y-4">
+                {/* 起始時間 */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400 w-8">從</span>
+                  <div className="flex-1 grid grid-cols-2 gap-2">
+                    <div className="relative">
+                      <select 
+                        value={config.fromType} 
+                        onChange={e => setConfig({...config, fromType: e.target.value as any})}
+                        className="w-full bg-black/50 rounded-xl p-2.5 text-sm font-bold appearance-none border border-white/10"
+                      >
+                        {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50"/>
+                    </div>
+                    <div className="relative">
+                      <select 
+                        value={config.fromDay} 
+                        onChange={e => setConfig({...config, fromDay: Number(e.target.value)})}
+                        className="w-full bg-black/50 rounded-xl p-2.5 text-sm font-bold appearance-none border border-white/10"
+                      >
+                        {dayOptions.map(d => <option key={d} value={d}>{d} 號</option>)}
+                      </select>
+                      <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50"/>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 結束時間 */}
+                <div className="flex items-center gap-2">
+                   <span className="text-xs font-bold text-slate-400 w-8">至</span>
+                   <div className="flex-1 grid grid-cols-2 gap-2">
+                    <div className="relative">
+                      <select 
+                        value={config.toType} 
+                        onChange={e => setConfig({...config, toType: e.target.value as any})}
+                        className="w-full bg-black/50 rounded-xl p-2.5 text-sm font-bold appearance-none border border-white/10"
+                      >
+                        {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                       <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50"/>
+                    </div>
+                    <div className="relative">
+                      <select 
+                        value={config.toDay} 
+                        onChange={e => setConfig({...config, toDay: Number(e.target.value)})}
+                        className="w-full bg-black/50 rounded-xl p-2.5 text-sm font-bold appearance-none border border-white/10"
+                      >
+                        {dayOptions.map(d => <option key={d} value={d}>{d} 號</option>)}
+                      </select>
+                       <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50"/>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto p-4 bg-black/40 rounded-[2rem] border border-white/5 no-scrollbar">
+
+            <div className="grid grid-cols-4 gap-3 max-h-32 overflow-y-auto p-4 bg-black/40 rounded-[2rem] border border-white/5 no-scrollbar">
               {PAYMENT_EMOJIS.map(e => (<button key={e} onClick={() => setEmoji(e)} className={`text-2xl p-2 rounded-xl transition-all ${emoji === e ? 'accent-bg' : 'hover:bg-white/5'}`}>{e}</button>))}
             </div>
           </div>
           <div className="flex gap-4 mt-8">
             <button onClick={onClose} className="flex-1 py-5 text-slate-500 font-black">取消</button>
-            <button onClick={() => { setData(prev => method ? { ...prev, paymentMethods: prev.paymentMethods.map(m => m.id === method.id ? { ...m, name, emoji, statementDay: sDay ? Number(sDay) : undefined } : m) } : { ...prev, paymentMethods: [...prev.paymentMethods, { id: crypto.randomUUID(), name, emoji, statementDay: sDay ? Number(sDay) : undefined }] }); onClose(); }} className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black">儲存渠道</button>
+            <button 
+              onClick={() => { 
+                setData(prev => method 
+                  ? { ...prev, paymentMethods: prev.paymentMethods.map(m => m.id === method.id ? { ...m, name, emoji, cycleConfig: config } : m) } 
+                  : { ...prev, paymentMethods: [...prev.paymentMethods, { id: crypto.randomUUID(), name, emoji, cycleConfig: config }] }
+                ); 
+                onClose(); 
+              }} 
+              className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black"
+            >
+              儲存設定
+            </button>
           </div>
         </div>
       </div>
     );
   };
 
-  const PaymentManager = () => (
-    <div className="fixed inset-0 z-[110] bg-[var(--bg-color)] animate-in">
-      <header className="px-6 pt-12 pb-6 border-b border-white/5 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setIsManagingPayments(false)} className="p-2 glass-panel rounded-xl"><ChevronLeft /></button>
-          <h2 className="text-xl font-black">支付渠道管理</h2>
-        </div>
-        <button onClick={() => setActivePaymentModal({ type: 'ADD' })} className="p-3 accent-bg text-[var(--bg-color)] rounded-xl font-black"><Plus size={20} /></button>
-      </header>
-      <div className="p-6 space-y-4 overflow-y-auto h-[calc(100%-120px)] hide-scrollbar">
-        {data.paymentMethods.map(pm => (
-          <div key={pm.id} className="glass-panel p-5 rounded-3xl flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <span className="text-3xl">{pm.emoji}</span>
-              <div>
-                <p className="font-bold text-lg">{pm.name}</p>
-                <p className="text-xs text-slate-500">結帳日: {pm.statementDay ? `${pm.statementDay} 號` : '未設定'}</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setActivePaymentModal({ type: 'EDIT', method: pm })} className="p-3 bg-white/5 rounded-2xl text-slate-400"><Edit3 size={18} /></button>
-              {pm.id !== 'cash' && (
-                <button 
-                  onClick={() => { 
-                    setConfirmModal({
-                      isOpen: true,
-                      title: '刪除渠道確認',
-                      message: `確定要刪除「${pm.name}」支付渠道嗎？`,
-                      onConfirm: () => {
-                        setData(prev => ({ ...prev, paymentMethods: prev.paymentMethods.filter(m => m.id !== pm.id) }));
-                        setConfirmModal(null);
-                      }
-                    });
-                  }} 
-                  className="p-3 bg-red-500/5 text-red-400"
-                >
-                  <Trash2 size={18} />
-                </button>
-              )}
-            </div>
+  const PaymentManager = () => {
+    const getCycleLabel = (type: string) => {
+      if (type === 'PREV') return '上月';
+      if (type === 'NEXT') return '下月';
+      return '本月';
+    };
+
+    return (
+      <div className="fixed inset-0 z-[110] bg-[var(--bg-color)] animate-in">
+        <header className="px-6 pt-12 pb-6 border-b border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsManagingPayments(false)} className="p-2 glass-panel rounded-xl"><ChevronLeft /></button>
+            <h2 className="text-xl font-black">支付渠道管理</h2>
           </div>
-        ))}
+          <button onClick={() => setActivePaymentModal({ type: 'ADD' })} className="p-3 accent-bg text-[var(--bg-color)] rounded-xl font-black"><Plus size={20} /></button>
+        </header>
+        <div className="p-6 space-y-4 overflow-y-auto h-[calc(100%-120px)] hide-scrollbar">
+          {data.paymentMethods.map(pm => {
+            const conf = pm.cycleConfig || { fromType: 'CURRENT', fromDay: 1, toType: 'CURRENT', toDay: 31 };
+            return (
+              <div key={pm.id} className="glass-panel p-5 rounded-3xl flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="text-3xl">{pm.emoji}</span>
+                  <div>
+                    <p className="font-bold text-lg">{pm.name}</p>
+                    <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                       <span className="bg-white/5 px-2 py-0.5 rounded text-[10px] text-slate-400">週期</span>
+                       {getCycleLabel(conf.fromType)} {conf.fromDay}號 <ArrowRight size={10} /> {getCycleLabel(conf.toType)} {conf.toDay}號
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setActivePaymentModal({ type: 'EDIT', method: pm })} className="p-3 bg-white/5 rounded-2xl text-slate-400"><Edit3 size={18} /></button>
+                  {pm.id !== 'cash' && (
+                    <button 
+                      onClick={() => { 
+                        setConfirmModal({
+                          isOpen: true,
+                          title: '刪除渠道確認',
+                          message: `確定要刪除「${pm.name}」支付渠道嗎？`,
+                          onConfirm: () => {
+                            setData(prev => ({ ...prev, paymentMethods: prev.paymentMethods.filter(m => m.id !== pm.id) }));
+                            setConfirmModal(null);
+                          }
+                        });
+                      }} 
+                      className="p-3 bg-red-500/5 text-red-400"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="max-w-md mx-auto h-full relative shadow-2xl overflow-hidden">

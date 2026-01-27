@@ -1,9 +1,17 @@
 
+export interface PaymentCycleConfig {
+  fromType: 'PREV' | 'CURRENT' | 'NEXT'; // 起始月份：上月、本月、下月
+  fromDay: number; // 起始日
+  toType: 'PREV' | 'CURRENT' | 'NEXT'; // 結束月份
+  toDay: number; // 結束日
+}
+
 export interface PaymentMethod {
   id: string;
   name: string;
   emoji: string;
-  statementDay?: number; // 結帳日 (1-31)
+  // 移除舊的 statementDay，改用更有彈性的 cycleConfig
+  cycleConfig?: PaymentCycleConfig; 
 }
 
 export interface Transaction {

@@ -48,6 +48,14 @@ const App = () => {
   const [activeTransactionModal, setActiveTransactionModal] = useState<{ type: 'ADD' | 'EDIT', subId: string, tx?: Transaction } | null>(null);
   const [isEditProjectModal, setIsEditProjectModal] = useState<Project | null>(null);
   
+  // 新增：客製化確認視窗狀態，取代原生 window.confirm 以避免手機端阻擋
+  const [confirmModal, setConfirmModal] = useState<{ 
+    isOpen: boolean; 
+    title: string; 
+    message: string; 
+    onConfirm: () => void;
+  } | null>(null);
+
   const currentMonthRef = useRef<HTMLDivElement>(null);
   const paymentMonthRef = useRef<HTMLDivElement>(null);
 
@@ -125,6 +133,45 @@ const App = () => {
     }));
     ensureYearExists(lastYear + 1);
     alert(`已完成 ${lastYear} 年結算，已為您開啟 ${lastYear + 1} 年預算表。`);
+  };
+
+  // 刪除年度邏輯 (使用客製化 Modal)
+  const deleteYear = (year: number) => {
+    const currentYearNum = new Date().getFullYear();
+    if (Number(year) === currentYearNum) {
+      alert("無法刪除當前年度。");
+      return;
+    }
+    
+    setConfirmModal({
+      isOpen: true,
+      title: '刪除年度確認',
+      message: `確定要刪除 ${year} 年度嗎？\n這將永久移除該年份的所有月份卡片、摺疊清單、支項設定與交易紀錄！此操作不可恢復。`,
+      onConfirm: () => {
+        setData(prev => {
+          const projectIdsToDelete = prev.projects.filter(p => p.year === year).map(p => p.id);
+          const subCategoryIdsToDelete = prev.subCategories
+            .filter(s => projectIdsToDelete.includes(s.projectId))
+            .map(s => s.id);
+
+          return {
+            ...prev,
+            yearConfigs: prev.yearConfigs.filter(y => y.year !== year),
+            projects: prev.projects.filter(p => p.year !== year),
+            subCategories: prev.subCategories.filter(s => !projectIdsToDelete.includes(s.projectId)),
+            transactions: prev.transactions.filter(t => {
+              if (subCategoryIdsToDelete.includes(t.subCategoryId)) return false;
+              if (t.subCategoryId.startsWith('free-money-')) {
+                const pid = t.subCategoryId.replace('free-money-', '');
+                if (projectIdsToDelete.includes(pid)) return false;
+              }
+              return true;
+            })
+          };
+        });
+        setConfirmModal(null);
+      }
+    });
   };
 
   const getProjectStats = (projectId: string) => {
@@ -206,6 +253,52 @@ const App = () => {
     setIsEditProjectModal(null);
   };
 
+  // 刪除支項邏輯 (使用客製化 Modal)
+  const deleteSubCategoryAndPropagate = (subId: string, projectId: string) => {
+    const sub = data.subCategories.find(s => s.id === subId);
+    if (!sub) return;
+    
+    setConfirmModal({
+      isOpen: true,
+      title: '刪除支項確認',
+      message: `確定要刪除「${sub.name}」支項嗎？\n該月份及未來所有月份的同名支項將一併刪除。此操作不可恢復。`,
+      onConfirm: () => {
+        const [y, m] = projectId.split('-').map(Number);
+        const subName = sub.name;
+
+        setData(prev => {
+          const subCategoriesToKill = prev.subCategories.filter(s => {
+            const [sy, sm] = s.projectId.split('-').map(Number);
+            const isFutureOrCurrent = (sy > y) || (sy === y && sm >= m);
+            return s.id === subId || (isFutureOrCurrent && s.name === subName);
+          });
+          const idsToKill = subCategoriesToKill.map(s => s.id);
+
+          return {
+            ...prev,
+            subCategories: prev.subCategories.filter(s => !idsToKill.includes(s.id)),
+            transactions: prev.transactions.filter(t => !idsToKill.includes(t.subCategoryId))
+          };
+        });
+        setActiveSubCategoryModal(null);
+        setConfirmModal(null);
+      }
+    });
+  };
+
+  // 刪除交易紀錄邏輯 (使用客製化 Modal)
+  const confirmDeleteTransaction = (t: Transaction) => {
+    setConfirmModal({
+      isOpen: true,
+      title: '刪除紀錄確認',
+      message: '確定要刪除此筆交易紀錄嗎？',
+      onConfirm: () => {
+        setData(prev => ({ ...prev, transactions: prev.transactions.filter(tx => tx.id !== t.id) }));
+        setConfirmModal(null);
+      }
+    });
+  };
+
   const saveTransaction = (nameInput: string, amount: number, subCategoryId: string, paymentMethodId: string, id?: string) => {
     const finalName = nameInput.trim() || new Date().toLocaleDateString('zh-TW');
     setData(prev => id 
@@ -219,16 +312,35 @@ const App = () => {
 
   const renderBudgetTab = () => {
     const sortedYears = [...data.yearConfigs].sort((a,b) => b.year - a.year);
+    const currentYearNum = new Date().getFullYear();
+
     return (
       <div className="flex-1 overflow-y-auto px-6 space-y-8 pb-32 hide-scrollbar">
         {sortedYears.map(yc => (
           <div key={yc.year} className="space-y-6">
-            <div 
-              onClick={() => setData(prev => ({ ...prev, yearConfigs: prev.yearConfigs.map(y => y.year === yc.year ? { ...y, isCollapsed: !y.isCollapsed } : y) }))}
-              className="flex items-center justify-between py-4 border-b border-white/5 opacity-50"
-            >
+            <div className="flex items-center justify-between py-4 border-b border-white/5 opacity-50">
               <h2 className="text-sm font-black tech-font tracking-[0.3em]">{yc.year} 年度預算</h2>
-              {yc.isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+              
+              <div className="flex items-center gap-4">
+                {yc.year !== currentYearNum && (
+                  <button 
+                    onClick={(e) => { 
+                      e.preventDefault(); 
+                      e.stopPropagation(); 
+                      deleteYear(yc.year); 
+                    }} 
+                    className="p-2 text-red-500/80 hover:text-red-500 active:scale-90 transition-all"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+                <div 
+                  onClick={() => setData(prev => ({ ...prev, yearConfigs: prev.yearConfigs.map(y => y.year === yc.year ? { ...y, isCollapsed: !y.isCollapsed } : y) }))}
+                  className="cursor-pointer p-2"
+                >
+                  {yc.isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                </div>
+              </div>
             </div>
             {!yc.isCollapsed && data.projects.filter(p => p.year === yc.year).map(p => {
               const { totalSpent, totalBudget } = getProjectStats(p.id);
@@ -245,7 +357,7 @@ const App = () => {
                       {ZODIACS[(p.month - 1) % 12]}
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold">{p.year}年 {p.month}月</h3>
+                      <h3 className={`text-xl font-bold ${isCurrent ? 'accent-text accent-glow' : ''}`}>{p.year}年 {p.month}月</h3>
                       <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">BUDGET: {formatCurrency(totalBudget)}</p>
                     </div>
                   </div>
@@ -267,6 +379,8 @@ const App = () => {
 
   const renderPaymentTab = () => {
     const sortedYears = [...data.yearConfigs].sort((a,b) => b.year - a.year);
+    const currentYearNum = new Date().getFullYear();
+
     return (
       <div className="flex-1 overflow-y-auto px-6 space-y-8 pb-32 hide-scrollbar relative">
         <div className="sticky top-0 z-30 pt-4 pb-2 bg-[var(--bg-color)]">
@@ -276,12 +390,29 @@ const App = () => {
         </div>
         {sortedYears.map(yc => (
           <div key={yc.year} className="space-y-6">
-            <div 
-              onClick={() => setData(prev => ({ ...prev, yearConfigs: prev.yearConfigs.map(y => y.year === yc.year ? { ...y, isCollapsed: !y.isCollapsed } : y) }))}
-              className="flex items-center justify-between py-4 border-b border-white/5 opacity-50"
-            >
+            <div className="flex items-center justify-between py-4 border-b border-white/5 opacity-50">
               <h2 className="text-sm font-black tech-font tracking-[0.3em]">{yc.year} 年度支出渠道</h2>
-              {yc.isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+              
+              <div className="flex items-center gap-4">
+                {yc.year !== currentYearNum && (
+                  <button 
+                    onClick={(e) => { 
+                      e.preventDefault(); 
+                      e.stopPropagation(); 
+                      deleteYear(yc.year); 
+                    }} 
+                    className="p-2 text-red-500/80 hover:text-red-500 active:scale-90 transition-all"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+                <div 
+                  onClick={() => setData(prev => ({ ...prev, yearConfigs: prev.yearConfigs.map(y => y.year === yc.year ? { ...y, isCollapsed: !y.isCollapsed } : y) }))}
+                  className="cursor-pointer p-2"
+                >
+                  {yc.isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                </div>
+              </div>
             </div>
             {!yc.isCollapsed && data.projects.filter(p => p.year === yc.year).map(p => {
               const stats = getPaymentStatsByMonth(p.id);
@@ -290,10 +421,9 @@ const App = () => {
                 <div key={p.id} ref={isCurrent ? paymentMonthRef : null} className={`glass-panel p-6 rounded-[2.5rem] space-y-5 transition-all ${isCurrent ? 'ring-2 ring-[var(--accent-glow)] neo-shadow' : ''}`}>
                   <div className="flex justify-between items-center border-b border-white/5 pb-3">
                     <h3 className="font-black text-lg flex items-center gap-2">
-                       <span className={isCurrent ? 'accent-text' : ''}>{p.month}月</span>
+                       <span className={isCurrent ? 'accent-text accent-glow' : ''}>{p.month}月</span>
                        <span className="text-[10px] text-slate-500 uppercase tracking-widest">{p.year}年</span>
                     </h3>
-                    <span className="text-[9px] tech-font text-slate-500">PAYMENT SUMMARY</span>
                   </div>
                   <div className="grid grid-cols-1 gap-2.5">
                     {stats.map(s => (
@@ -328,31 +458,16 @@ const App = () => {
         <div className="bg-[var(--bg-color)] w-full max-w-sm rounded-[2.5rem] p-8 border border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
           <h3 className="text-2xl font-black mb-8 accent-text">{tx ? '編輯記錄' : '新增收支'}</h3>
           <div className="space-y-6">
-            <input 
-              className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 text-white font-bold" 
-              placeholder="支出內容" 
-              value={name} 
-              onChange={e => setName(e.target.value)} 
-            />
+            <input className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 text-white font-bold" placeholder="支出內容" value={name} onChange={e => setName(e.target.value)} />
             <div className="relative">
-              <input 
-                type="number" 
-                className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 tech-font text-3xl font-black" 
-                placeholder="金額" 
-                value={amount} 
-                onChange={e => setAmount(e.target.value)} 
-              />
+              <input type="number" className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 tech-font text-3xl font-black" placeholder="金額" value={amount} onChange={e => setAmount(e.target.value)} />
               <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 font-black">TWD</span>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-500 uppercase px-2">支付方式</label>
               <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-2 no-scrollbar">
                 {data.paymentMethods.map(pm => (
-                  <button 
-                    key={pm.id} 
-                    onClick={() => setPmId(pm.id)}
-                    className={`p-3 rounded-xl border transition-all flex items-center gap-2 ${pmId === pm.id ? 'accent-border accent-bg text-[var(--bg-color)]' : 'border-white/10 bg-black/30 text-slate-400'}`}
-                  >
+                  <button key={pm.id} onClick={() => setPmId(pm.id)} className={`p-3 rounded-xl border transition-all flex items-center gap-2 ${pmId === pm.id ? 'accent-border accent-bg text-[var(--bg-color)]' : 'border-white/10 bg-black/30 text-slate-400'}`}>
                     <span className="text-lg">{pm.emoji}</span>
                     <span className="text-xs font-bold truncate">{pm.name}</span>
                   </button>
@@ -362,10 +477,7 @@ const App = () => {
           </div>
           <div className="flex gap-4 mt-10">
             <button onClick={onClose} className="flex-1 py-4 text-slate-500 font-black">取消</button>
-            <button 
-              onClick={() => saveTransaction(name, Number(amount), subId, pmId, tx?.id)} 
-              className="flex-[2] py-4 accent-bg text-[var(--bg-color)] rounded-2xl font-black shadow-lg"
-            >確認儲存</button>
+            <button onClick={() => saveTransaction(name, Number(amount), subId, pmId, tx?.id)} className="flex-[2] py-4 accent-bg text-[var(--bg-color)] rounded-2xl font-black shadow-lg">確認儲存</button>
           </div>
         </div>
       </div>
@@ -380,7 +492,18 @@ const App = () => {
     return (
       <div className="fixed inset-0 z-[120] flex items-end justify-center sm:items-center p-4 bg-black/90 backdrop-blur-xl">
         <div className="bg-[var(--bg-color)] w-full max-w-sm rounded-[2.5rem] p-8 border border-white/10 shadow-2xl animate-in slide-in-from-bottom-8">
-          <h3 className="text-2xl font-black mb-8 accent-text">預算支項設定</h3>
+          <div className="flex justify-between items-start mb-8">
+            <h3 className="text-2xl font-black accent-text">{sub ? '編輯支項' : '新增支項'}</h3>
+            {sub && (
+              <button 
+                type="button"
+                onClick={() => deleteSubCategoryAndPropagate(sub.id, projectId)}
+                className="p-3 text-red-500 bg-red-500/10 rounded-2xl hover:bg-red-500/20 active:scale-90 transition-all"
+              >
+                <Trash2 size={22} />
+              </button>
+            )}
+          </div>
           <div className="space-y-6">
             <div className="flex gap-4">
               <button className="bg-black/50 w-20 h-20 rounded-3xl text-4xl border border-white/5 flex items-center justify-center shrink-0">{emoji}</button>
@@ -400,7 +523,7 @@ const App = () => {
           </div>
           <div className="flex gap-4 mt-8">
             <button onClick={onClose} className="flex-1 py-5 text-slate-500 font-black">取消</button>
-            <button onClick={() => updateBudgetAndPropagate(projectId, name, emoji, Number(budget), true, sub?.id)} className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black">同步更新</button>
+            <button onClick={() => updateBudgetAndPropagate(projectId, name, emoji, Number(budget), true, sub?.id)} className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black">確認同步</button>
           </div>
         </div>
       </div>
@@ -426,39 +549,20 @@ const App = () => {
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-500 uppercase px-2">結帳日</label>
               <div className="relative">
-                <select 
-                  className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 text-white font-black appearance-none focus:accent-border transition-all"
-                  value={sDay}
-                  onChange={e => setSDay(e.target.value)}
-                >
+                <select className="w-full bg-black/50 rounded-2xl p-5 border border-white/10 text-white font-black appearance-none focus:accent-border transition-all" value={sDay} onChange={e => setSDay(e.target.value)}>
                   <option value="" className="bg-slate-900">不設定 (無結帳日)</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                    <option key={day} value={day} className="bg-slate-900">{day} 號</option>
-                  ))}
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (<option key={day} value={day} className="bg-slate-900">{day} 號</option>))}
                 </select>
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
-                  <ChevronDown size={18} />
-                </div>
+                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500"><ChevronDown size={18} /></div>
               </div>
             </div>
             <div className="grid grid-cols-4 gap-3 max-h-40 overflow-y-auto p-4 bg-black/40 rounded-[2rem] border border-white/5 no-scrollbar">
-              {PAYMENT_EMOJIS.map(e => (
-                <button key={e} onClick={() => setEmoji(e)} className={`text-2xl p-2 rounded-xl transition-all ${emoji === e ? 'accent-bg' : 'hover:bg-white/5'}`}>{e}</button>
-              ))}
+              {PAYMENT_EMOJIS.map(e => (<button key={e} onClick={() => setEmoji(e)} className={`text-2xl p-2 rounded-xl transition-all ${emoji === e ? 'accent-bg' : 'hover:bg-white/5'}`}>{e}</button>))}
             </div>
           </div>
           <div className="flex gap-4 mt-8">
             <button onClick={onClose} className="flex-1 py-5 text-slate-500 font-black">取消</button>
-            <button 
-              onClick={() => {
-                setData(prev => method 
-                  ? { ...prev, paymentMethods: prev.paymentMethods.map(m => m.id === method.id ? { ...m, name, emoji, statementDay: sDay ? Number(sDay) : undefined } : m) }
-                  : { ...prev, paymentMethods: [...prev.paymentMethods, { id: crypto.randomUUID(), name, emoji, statementDay: sDay ? Number(sDay) : undefined }] }
-                );
-                onClose();
-              }}
-              className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black"
-            >儲存渠道</button>
+            <button onClick={() => { setData(prev => method ? { ...prev, paymentMethods: prev.paymentMethods.map(m => m.id === method.id ? { ...m, name, emoji, statementDay: sDay ? Number(sDay) : undefined } : m) } : { ...prev, paymentMethods: [...prev.paymentMethods, { id: crypto.randomUUID(), name, emoji, statementDay: sDay ? Number(sDay) : undefined }] }); onClose(); }} className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black">儲存渠道</button>
           </div>
         </div>
       </div>
@@ -472,9 +576,7 @@ const App = () => {
           <button onClick={() => setIsManagingPayments(false)} className="p-2 glass-panel rounded-xl"><ChevronLeft /></button>
           <h2 className="text-xl font-black">支付渠道管理</h2>
         </div>
-        <button onClick={() => setActivePaymentModal({ type: 'ADD' })} className="p-3 accent-bg text-[var(--bg-color)] rounded-xl font-black">
-          <Plus size={20} />
-        </button>
+        <button onClick={() => setActivePaymentModal({ type: 'ADD' })} className="p-3 accent-bg text-[var(--bg-color)] rounded-xl font-black"><Plus size={20} /></button>
       </header>
       <div className="p-6 space-y-4 overflow-y-auto h-[calc(100%-120px)] hide-scrollbar">
         {data.paymentMethods.map(pm => (
@@ -489,7 +591,22 @@ const App = () => {
             <div className="flex gap-2">
               <button onClick={() => setActivePaymentModal({ type: 'EDIT', method: pm })} className="p-3 bg-white/5 rounded-2xl text-slate-400"><Edit3 size={18} /></button>
               {pm.id !== 'cash' && (
-                <button onClick={() => setData(prev => ({ ...prev, paymentMethods: prev.paymentMethods.filter(m => m.id !== pm.id) }))} className="p-3 bg-red-500/5 text-red-400"><Trash2 size={18} /></button>
+                <button 
+                  onClick={() => { 
+                    setConfirmModal({
+                      isOpen: true,
+                      title: '刪除渠道確認',
+                      message: `確定要刪除「${pm.name}」支付渠道嗎？`,
+                      onConfirm: () => {
+                        setData(prev => ({ ...prev, paymentMethods: prev.paymentMethods.filter(m => m.id !== pm.id) }));
+                        setConfirmModal(null);
+                      }
+                    });
+                  }} 
+                  className="p-3 bg-red-500/5 text-red-400"
+                >
+                  <Trash2 size={18} />
+                </button>
               )}
             </div>
           </div>
@@ -505,28 +622,16 @@ const App = () => {
           <>
             <header className="px-6 pt-12 pb-6 shrink-0 space-y-6">
               <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-black tech-font tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-[var(--accent-color)] accent-glow uppercase">
-                  預算管理
-                </h1>
-                <button onClick={() => setView({ type: 'THEME_SETTINGS' })} className="p-3 glass-panel rounded-2xl accent-text active:scale-90 transition-all neo-shadow">
-                  <Palette size={22} />
-                </button>
+                <h1 className="text-3xl font-black tech-font tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-[var(--accent-color)] accent-glow uppercase">預算管理</h1>
+                <button onClick={() => setView({ type: 'THEME_SETTINGS' })} className="p-3 glass-panel rounded-2xl accent-text active:scale-90 transition-all neo-shadow"><Palette size={22} /></button>
               </div>
               <div className="bg-black/40 p-1.5 rounded-2xl flex border border-white/5">
-                <button onClick={() => setView({ ...view, tab: 'BUDGET' })} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 transition-all ${view.tab === 'BUDGET' ? 'accent-bg text-[var(--bg-color)] font-black' : 'text-slate-500 font-bold'}`}>
-                  <Calendar size={18} /> 預算月份
-                </button>
-                <button onClick={() => setView({ ...view, tab: 'PAYMENT' })} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 transition-all ${view.tab === 'PAYMENT' ? 'accent-bg text-[var(--bg-color)] font-black' : 'text-slate-500 font-bold'}`}>
-                  <CreditCard size={18} /> 支付渠道
-                </button>
+                <button onClick={() => setView({ ...view, tab: 'BUDGET' })} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 transition-all ${view.tab === 'BUDGET' ? 'accent-bg text-[var(--bg-color)] font-black' : 'text-slate-500 font-bold'}`}><Calendar size={18} /> 預算月份</button>
+                <button onClick={() => setView({ ...view, tab: 'PAYMENT' })} className={`flex-1 py-3 rounded-xl flex items-center justify-center gap-2 transition-all ${view.tab === 'PAYMENT' ? 'accent-bg text-[var(--bg-color)] font-black' : 'text-slate-500 font-bold'}`}><CreditCard size={18} /> 支付渠道</button>
               </div>
             </header>
             {view.tab === 'BUDGET' ? renderBudgetTab() : renderPaymentTab()}
-            {view.tab === 'BUDGET' && (
-              <button onClick={endCurrentYear} className="fixed bottom-10 left-8 px-6 py-4 accent-bg text-[var(--bg-color)] rounded-2xl flex items-center gap-2 font-black tech-font text-xs active:scale-90 transition-all z-50 shadow-2xl">
-                結束今年
-              </button>
-            )}
+            {view.tab === 'BUDGET' && (<button onClick={endCurrentYear} className="fixed bottom-10 left-8 px-6 py-4 accent-bg text-[var(--bg-color)] rounded-2xl flex items-center gap-2 font-black tech-font text-xs active:scale-90 transition-all z-50 shadow-2xl">結束今年</button>)}
           </>
         )}
 
@@ -536,40 +641,26 @@ const App = () => {
               <button onClick={() => setView({ type: 'PROJECT_LIST', tab: 'BUDGET' })} className="p-2 glass-panel rounded-xl"><ChevronLeft /></button>
               <h2 className="text-xl font-black">明細列表</h2>
             </header>
-            
             {(() => {
               const { totalRemaining, totalBudget } = getProjectStats(view.projectId);
               return (
                 <div className="shrink-0 p-8 flex flex-col items-center">
                   <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2">剩餘可用預算</span>
-                  <div className={`text-5xl font-black tech-font ${totalRemaining >= 0 ? 'text-green-400' : 'text-red-400'} accent-glow`}>
-                    {formatCurrency(totalRemaining)}
-                  </div>
-                  <div className="mt-4 px-5 py-1.5 bg-black/50 rounded-full border border-white/5 shadow-inner">
-                    <p className="text-slate-400 text-[10px] font-bold tracking-widest">總預算額度: {formatCurrency(totalBudget)}</p>
-                  </div>
+                  <div className={`text-5xl font-black tech-font ${totalRemaining >= 0 ? 'text-green-400' : 'text-red-400'} accent-glow`}>{formatCurrency(totalRemaining)}</div>
+                  <div className="mt-4 px-5 py-1.5 bg-black/50 rounded-full border border-white/5 shadow-inner"><p className="text-slate-400 text-[10px] font-bold tracking-widest">總預算額度: {formatCurrency(totalBudget)}</p></div>
                 </div>
               );
             })()}
-
             <div className="flex-1 overflow-y-auto px-6 space-y-4 pt-2 pb-24 hide-scrollbar">
               {getProjectStats(view.projectId).subStats.map(sub => (
                 <div key={sub.id} onClick={() => setView({ type: 'TRANSACTION_HISTORY', subCategoryId: sub.id, projectId: view.projectId })} className="glass-panel p-5 rounded-3xl flex items-center justify-between active:scale-[0.98] transition-all overflow-hidden">
                    <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-black/30 rounded-2xl flex items-center justify-center text-2xl">{sub.emoji}</div>
-                    <div className="overflow-hidden">
-                      <p className="font-bold text-lg truncate">{sub.name}</p>
-                      <p className="text-[10px] text-slate-500">已用: {formatCurrency(sub.spent)}</p>
-                    </div>
+                    <div className="overflow-hidden"><p className="font-bold text-lg truncate">{sub.name}</p><p className="text-[10px] text-slate-500">已用: {formatCurrency(sub.spent)}</p></div>
                   </div>
                   <div className="text-right flex items-center gap-4">
-                    <div>
-                      <p className={`font-black text-lg ${sub.remaining >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(sub.remaining)}</p>
-                      <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">剩餘</p>
-                    </div>
-                    {!(sub as any).isFreeMoney && (
-                      <button onClick={(e) => { e.stopPropagation(); setActiveSubCategoryModal({ type: 'EDIT', sub, projectId: view.projectId }); }} className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:accent-text"><Settings2 size={16} /></button>
-                    )}
+                    <div><p className={`font-black text-lg ${sub.remaining >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(sub.remaining)}</p><p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">剩餘</p></div>
+                    {!(sub as any).isFreeMoney && (<button onClick={(e) => { e.stopPropagation(); setActiveSubCategoryModal({ type: 'EDIT', sub, projectId: view.projectId }); }} className="p-3 bg-white/5 rounded-2xl text-slate-500 hover:accent-text"><Settings2 size={16} /></button>)}
                   </div>
                 </div>
               ))}
@@ -585,22 +676,16 @@ const App = () => {
               <h2 className="text-xl font-bold">交易記錄</h2>
             </header>
             <div className="flex-1 overflow-y-auto px-6 space-y-4 pt-6 pb-24 hide-scrollbar">
-              {data.transactions.filter(t => t.subCategoryId === view.subCategoryId).length === 0 && (
-                <div className="text-center py-20 opacity-30 font-black tech-font">NO TRANSACTIONS</div>
-              )}
+              {data.transactions.filter(t => t.subCategoryId === view.subCategoryId).length === 0 && (<div className="text-center py-20 opacity-30 font-black tech-font">NO TRANSACTIONS</div>)}
               {data.transactions.filter(t => t.subCategoryId === view.subCategoryId).map(t => (
                 <div key={t.id} className="glass-panel p-5 rounded-3xl flex items-center justify-between active:scale-[0.98] transition-all">
                   <div className="flex-1 overflow-hidden" onClick={() => setActiveTransactionModal({ type: 'EDIT', subId: view.subCategoryId, tx: t })}>
                     <p className="font-bold truncate">{t.name}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[9px] bg-white/5 px-2 py-0.5 rounded-full text-slate-400 font-bold">
-                        {data.paymentMethods.find(p=>p.id===t.paymentMethodId)?.emoji} {data.paymentMethods.find(p=>p.id===t.paymentMethodId)?.name}
-                      </span>
-                    </div>
+                    <div className="flex items-center gap-2 mt-1"><span className="text-[9px] bg-white/5 px-2 py-0.5 rounded-full text-slate-400 font-bold">{data.paymentMethods.find(p=>p.id===t.paymentMethodId)?.emoji} {data.paymentMethods.find(p=>p.id===t.paymentMethodId)?.name}</span></div>
                   </div>
                   <div className="flex items-center gap-4 ml-4">
                     <p className="font-black text-red-400 tech-font">{formatCurrency(t.amount)}</p>
-                    <button onClick={() => setData(prev => ({ ...prev, transactions: prev.transactions.filter(tx => tx.id !== t.id) }))} className="p-2 text-red-500/50 hover:text-red-500"><Trash2 size={16} /></button>
+                    <button onClick={() => confirmDeleteTransaction(t)} className="p-2 text-red-500/50 hover:text-red-500"><Trash2 size={16} /></button>
                   </div>
                 </div>
               ))}
@@ -616,11 +701,7 @@ const App = () => {
               <h2 className="text-2xl font-black tech-font">視覺主題</h2>
             </header>
             <div className="flex-1 overflow-y-auto px-6 grid grid-cols-2 gap-5 pb-24 hide-scrollbar">
-              {THEMES.map(t => (
-                <button key={t.id} onClick={() => setCurrentTheme(t)} className={`p-6 rounded-[2rem] glass-panel border-2 ${currentTheme.id === t.id ? 'accent-border ring-4 ring-[var(--accent-glow)]' : 'border-white/5 opacity-60'}`} style={{ background: t.bgImage }}>
-                  <span className="text-[10px] font-black uppercase tracking-widest">{t.name}</span>
-                </button>
-              ))}
+              {THEMES.map(t => (<button key={t.id} onClick={() => setCurrentTheme(t)} className={`p-6 rounded-[2rem] glass-panel border-2 ${currentTheme.id === t.id ? 'accent-border ring-4 ring-[var(--accent-glow)]' : 'border-white/5 opacity-60'}`} style={{ background: t.bgImage }}><span className="text-[10px] font-black uppercase tracking-widest">{t.name}</span></button>))}
             </div>
           </div>
         )}
@@ -644,6 +725,19 @@ const App = () => {
             <div className="flex gap-4 mt-10">
               <button onClick={() => setIsEditProjectModal(null)} className="flex-1 py-5 text-slate-500 font-black">取消</button>
               <button onClick={() => updateBudgetAndPropagate(isEditProjectModal.id, '', '', isEditProjectModal.totalBudget, false)} className="flex-[2] py-5 accent-bg text-[var(--bg-color)] rounded-2xl font-black">確認同步</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmModal && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in">
+          <div className="bg-[var(--bg-color)] w-full max-w-xs rounded-[2rem] p-6 border border-white/10 shadow-2xl">
+            <h3 className="text-xl font-black mb-4 accent-text text-center">{confirmModal.title}</h3>
+            <p className="text-slate-300 mb-8 text-center text-sm leading-relaxed whitespace-pre-wrap">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-3 text-slate-500 font-bold bg-white/5 rounded-xl">取消</button>
+              <button onClick={confirmModal.onConfirm} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg shadow-red-500/20">確認刪除</button>
             </div>
           </div>
         </div>
